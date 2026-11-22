@@ -1,0 +1,148 @@
+{
+ "groups": [
+  {
+   "name": "角色",
+   "cats": [
+    {
+     "name": "角色",
+     "count": 36
+    }
+   ],
+   "count": 36
+  },
+  {
+   "name": "对局内容",
+   "cats": [
+    {
+     "name": "筹码",
+     "count": 90
+    },
+    {
+     "name": "事件",
+     "count": 75
+    },
+    {
+     "name": "卡牌/手牌",
+     "count": 72
+    },
+    {
+     "name": "怪物",
+     "count": 69
+    },
+    {
+     "name": "地图",
+     "count": 19
+    }
+   ],
+   "count": 325
+  },
+  {
+   "name": "外观与通行证",
+   "cats": [
+    {
+     "name": "通行证",
+     "count": 21
+    },
+    {
+     "name": "装扮图鉴",
+     "count": 1
+    }
+   ],
+   "count": 22
+  },
+  {
+   "name": "活动与版本",
+   "cats": [
+    {
+     "name": "活动",
+     "count": 56
+    },
+    {
+     "name": "版本与公告",
+     "count": 31
+    }
+   ],
+   "count": 87
+  },
+  {
+   "name": "资料",
+   "cats": [
+    {
+     "name": "其他",
+     "count": 26
+    },
+    {
+     "name": "图鉴",
+     "count": 17
+    },
+    {
+     "name": "剧情",
+     "count": 2
+    },
+    {
+     "name": "成就",
+     "count": 1
+    }
+   ],
+   "count": 46
+  }
+ ],
+ "all": [
+  {
+   "name": "筹码",
+   "count": 90
+  },
+  {
+   "name": "事件",
+   "count": 75
+  },
+  {
+   "name": "卡牌/手牌",
+   "count": 72
+  },
+  {
+   "name": "怪物",
+   "count": 69
+  },
+  {
+   "name": "活动",
+   "count": 56
+  },
+  {
+   "name": "角色",
+   "count": 36
+  },
+  {
+   "name": "版本与公告",
+   "count": 31
+  },
+  {
+   "name": "其他",
+   "count": 26
+  },
+  {
+   "name": "通行证",
+   "count": 21
+  },
+  {
+   "name": "地图",
+   "count": 19
+  },
+  {
+   "name": "图鉴",
+   "count": 17
+  },
+  {
+   "name": "剧情",
+   "count": 2
+  },
+  {
+   "name": "成就",
+   "count": 1
+  },
+  {
+   "name": "装扮图鉴",
+   "count": 1
+  }
+ ]
+}

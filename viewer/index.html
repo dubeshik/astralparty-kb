@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>吉星派对 · 本地知识库</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="top">
+  <div class="brand">吉星派对 <span>· 本地知识库</span></div>
+  <div id="meta"></div>
+  <div class="spacer"></div>
+  <div class="qbox">
+    <span class="ico">🔍</span>
+    <input id="search" placeholder="搜索词条、角色、皮肤、表情…" autocomplete="off" spellcheck="false">
+    <kbd>/</kbd>
+  </div>
+  <button class="btn" id="copyCur" title="把当前词条复制成 Markdown，直接粘给 AI">复制当前页</button>
+  <button class="btn primary" id="copyRes" title="把当前筛选结果复制成 Markdown">复制检索结果</button>
+  <button class="btn" id="helpBtn">使用说明</button>
+</div>
+
+<div id="main">
+  <aside id="side">
+    <div class="side-head">
+      <span class="side-title">目录</span>
+      <span id="count"></span>
+    </div>
+    <div id="cats"></div>
+    <div id="list"></div>
+  </aside>
+  <button id="handle" title="收起 / 展开侧边栏（快捷键 B）" aria-label="切换侧边栏">‹</button>
+  <div id="view">
+    <iframe id="frame" title="词条内容"></iframe>
+    <div id="hint">
+      <div class="big">从左侧选一个词条开始</div>
+      <div class="tips">
+        搜「芬妮」看角色档案 · 搜「清凉盛夏」直达皮肤<br>
+        <kbd>/</kbd> 聚焦搜索　<kbd>B</kbd> 收起侧栏　<kbd>Esc</kbd> 关闭弹层
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="mask"><div class="help">
+  <button class="x" onclick="document.getElementById('mask').classList.remove('show')">×</button>
+  <h2>这个知识库怎么用</h2>
+  <p>数据来自官方 BWiki（wiki.biligame.com/starengine），本地离线，只收游戏内容页。</p>
+
+  <h3>看</h3>
+  <p>左边按分类或搜索选词条。角色页是「一站式档案」：概览、皮肤（含默认与羁绊，全套数）、
+     表情、装扮、档案、语音，六个分页切换，不再把几十张图堆在页面底部。</p>
+
+  <h3>喂给 AI</h3>
+  <p>点「复制当前页」或「复制检索结果」，得到干净 Markdown（含本地图片链接与来源）。
+     也可以让 AI 直接读文件：</p>
+  <pre># 关键词检索（AND）
+python tools/kb_search.py "芬妮 皮肤" --limit 5
+# 结构化输出
+python tools/kb_search.py "清凉盛夏" --json
+# 整页 Markdown
+python tools/kb_search.py "芬妮" --full
+# 角色/皮肤/表情的结构化数据
+python tools/kb_search.py --characters</pre>
+
+  <h3>数据文件</h3>
+  <table>
+    <tr><th>路径</th><th>用途</th></tr>
+    <tr><td><code>data/markdown/</code></td><td>每页一份 AI 友好 Markdown</td></tr>
+    <tr><td><code>data/chunks.jsonl</code></td><td>RAG 分块（带章节路径）</td></tr>
+    <tr><td><code>data/characters.json</code></td><td>角色 / 皮肤 / 表情结构化数据</td></tr>
+    <tr><td><code>data/images/</code></td><td>本地图片（按原始文件名归并去重）</td></tr>
+  </table>
+
+  <h3>更新</h3>
+  <pre>python tools/fetch_wiki.py       # 增量抓取
+python tools/download_images.py  # 下载新图
+python tools/upgrade_images.py   # 缩略图升级原图
+python tools/build_kb.py         # 重建全部产物</pre>
+  <p style="color:#7b8391;font-size:12.5px">
+    wiki 页面结构变化后可能需要调整 <code>tools/extract.py</code> 的解析规则。</p>
+</div></div>
+
+<script src="../data/bundle.js"></script>
+<script>
+(function () {
+  const DATA = window.KB_DATA;
+  const $ = s => document.querySelector(s);
+  const countEl = $('#count');
+
+  if (!DATA) {
+    countEl.textContent = '未构建';
+    $('#list').innerHTML = '<div style="padding:18px;color:#7b8391;line-height:1.8">' +
+      '数据未加载。<br>请先运行 <code>python tools/build_kb.py</code>。</div>';
+    return;
+  }
+
+  const pages = DATA.pages.slice();
+  const byId = {};
+  pages.forEach(p => { byId[p.id] = p; });
+  const state = { q: '', cat: '', id: null, result: [] };
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const thumbSrc = t => '../data/' + String(t || '').replace(/^\.\.\//, '');
+
+  /* ---------- 侧栏开关：只有一处状态 ---------- */
+  function setCollapsed(v) {
+    document.body.classList.toggle('collapsed', v);
+    const h = $('#handle');
+    h.textContent = v ? '›' : '‹';
+    h.title = (v ? '展开' : '收起') + '侧边栏（快捷键 B）';
+    try { localStorage.setItem('kbCollapsed', v ? '1' : '0'); } catch (e) {}
+  }
+  $('#handle').addEventListener('click', () =>
+    setCollapsed(!document.body.classList.contains('collapsed')));
+  setCollapsed(localStorage.getItem('kbCollapsed') === '1');
+
+  /* ---------- 分类 ---------- */
+  const groups = DATA.groups || [];
+  const catCount = {};
+  pages.forEach(p => { catCount[p.category] = (catCount[p.category] || 0) + 1; });
+
+  const catHtml = ['<div class="grp"><div class="chips">' +
+    '<div class="chip on" data-cat="">全部<span class="n">' + pages.length + '</span></div>' +
+    '</div></div>'];
+  groups.forEach(g => {
+    if (!g.cats || !g.cats.length) return;
+    const hideLabel = g.cats.length === 1 && g.cats[0].name === g.name;
+    catHtml.push('<div class="grp">' +
+      (hideLabel ? '' : '<div class="grp-h">' + esc(g.name) + '</div>') +
+      '<div class="chips">');
+    g.cats.forEach(c => {
+      catHtml.push('<div class="chip" data-cat="' + esc(c.name) + '">' + esc(c.name) +
+        '<span class="n">' + c.count + '</span></div>');
+    });
+    catHtml.push('</div></div>');
+  });
+  $('#cats').innerHTML = catHtml.join('');
+  $('#cats').addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    $('#cats').querySelectorAll('.chip').forEach(x => x.classList.remove('on'));
+    chip.classList.add('on');
+    state.cat = chip.dataset.cat;
+    render();
+  });
+
+  /* ---------- 搜索与列表 ---------- */
+  function score(p, terms) {
+    const t = p.title.toLowerCase();
+    const skin = (p.skins || []).join(' ').toLowerCase();
+    const emo = (p.emojis || []).join(' ').toLowerCase();
+    const body = (p.text || '').toLowerCase();
+    let s = 0;
+    for (const k of terms) {
+      if (t === k) s += 120;
+      else if (t.indexOf(k) >= 0) s += 45;
+      else if (skin.indexOf(k) >= 0) s += 34;
+      else if (emo.indexOf(k) >= 0) s += 26;
+      else if (body.indexOf(k) >= 0) s += 4;
+      else return -1;
+    }
+    if (p.kind === 'char') s += 6;
+    return s;
+  }
+
+  function highlight(text, terms) {
+    let s = esc(text);
+    terms.forEach(t => {
+      if (!t) return;
+      s = s.replace(new RegExp('(' + reEsc(esc(t)) + ')', 'gi'), '<mark>$1</mark>');
+    });
+    return s;
+  }
+
+  function quickChars() {
+    const chars = pages.filter(p => p.kind === 'char')
+      .sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'));
+    if (!chars.length) return '';
+    const shown = chars.slice(0, 17);
+    return '<div class="quick"><div class="quick-h">角色速览 · 共 ' + chars.length + ' 位</div>' +
+      '<div class="quick-grid">' +
+      shown.map(p => '<div class="qc" data-id="' + p.id + '" title="' + esc(p.title) + '">' +
+        (p.thumb ? '<img src="' + thumbSrc(p.thumb) + '" alt="" loading="lazy">'
+                 : '<img alt="">') +
+        '<span>' + esc(p.title) + '</span></div>').join('') +
+      '<div class="qc" data-cat="角色" title="查看全部角色"><img alt="" style="display:flex;' +
+      'align-items:center;justify-content:center;font-size:12px;color:#8b93a3;' +
+      'background:#f1f2f7">··<span>全部</span></div></div></div>';
+  }
+
+  function render() {
+    const terms = state.q.toLowerCase().split(/\s+/).filter(Boolean);
+    let list = pages.filter(p => {
+      if (state.cat && p.category !== state.cat) return false;
+      if (!terms.length) return true;
+      return score(p, terms) >= 0;
+    });
+    if (terms.length) {
+      list.sort((a, b) => score(b, terms) - score(a, terms) ||
+        a.title.localeCompare(b.title, 'zh-CN'));
+    } else {
+      list.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'));
+    }
+    state.result = list;
+
+    const showQuick = !terms.length && !state.cat;
+    countEl.textContent = list.length + ' 条' + (list.length > 300 ? '（仅显示前 300）' : '');
+    const shown = list.slice(0, 300);
+
+    $('#list').innerHTML =
+      (showQuick ? quickChars() + '<div class="quick-h" style="margin:10px 4px 4px">全部词条</div>' : '') +
+      (shown.length ? shown.map(p => {
+        const sub = p.kind === 'char'
+          ? (p.skins ? p.skins.length + ' 套皮肤' : '') +
+            (p.emojis && p.emojis.length ? ' · ' + p.emojis.length + ' 个表情' : '')
+          : (p.summary || '');
+        return '<div class="item' + (p.id === state.id ? ' on active-page' : '') +
+          '" data-id="' + p.id + '">' +
+          (p.thumb ? '<img class="thumb" src="' + thumbSrc(p.thumb) + '" alt="" loading="lazy">'
+                   : '<div class="thumb ph">' + esc(p.title.slice(0, 1)) + '</div>') +
+          '<div class="ib"><div class="t"><span>' + highlight(p.title, terms) + '</span>' +
+          '<span class="c">' + esc(p.category) + '</span></div>' +
+          '<div class="s">' + esc(sub) + '</div></div></div>';
+      }).join('') : '<div style="padding:22px 12px;color:#7b8391">没有匹配的词条，试试更短的关键词。</div>');
+  }
+
+  /* ---------- 打开词条 ---------- */
+  function open(id, push) {
+    const p = byId[id];
+    if (!p) return;
+    state.id = id;
+    $('#frame').src = '../data/pages/' + p.page;
+    $('#hint').style.display = 'none';
+    document.querySelectorAll('.item').forEach(x =>
+      x.classList.toggle('on', +x.dataset.id === id));
+    if (push !== false) history.replaceState(null, '', '#' + id);
+    // 移动端：选完自动收起
+    if (window.innerWidth < 820) setCollapsed(true);
+  }
+
+  $('#list').addEventListener('click', e => {
+    const qc = e.target.closest('.qc');
+    if (qc) {
+      if (qc.dataset.cat) {
+        const chip = document.querySelector('.chip[data-cat="' + qc.dataset.cat + '"]');
+        if (chip) chip.click();
+        return;
+      }
+      return open(+qc.dataset.id);
+    }
+    const item = e.target.closest('.item');
+    if (item) open(+item.dataset.id);
+  });
+
+  let timer = null;
+  $('#search').addEventListener('input', e => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { state.q = e.target.value.trim(); render(); }, 80);
+  });
+
+  window.addEventListener('message', e => {
+    if (e.data && e.data.kbNavigate) open(+e.data.kbNavigate);
+  });
+  window.addEventListener('hashchange', () => {
+    const id = +location.hash.slice(1);
+    if (id && id !== state.id) open(id, false);
+  });
+
+  /* ---------- 复制 ---------- */
+  function copy(text, what) {
+    const done = () => toast('已复制' + what + '，可直接粘贴给 AI');
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallback());
+    } else fallback();
+    function fallback() {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) {}
+      document.body.removeChild(ta);
+      toast(ok ? '已复制' + what : '复制失败，请手动选择');
+    }
+  }
+  $('#copyCur').addEventListener('click', () => {
+    if (!state.id) return toast('先打开一个词条');
+    copy(byId[state.id].md, '《' + byId[state.id].title + '》');
+  });
+  $('#copyRes').addEventListener('click', () => {
+    const sel = state.result.slice(0, 20);
+    if (!sel.length) return toast('没有可复制的结果');
+    const text = sel.map(p => p.md).join('\n\n---\n\n');
+    copy(text.slice(0, 160000), sel.length + ' 个词条');
+  });
+
+  /* ---------- 弹层与快捷键 ---------- */
+  const mask = $('#mask');
+  $('#helpBtn').addEventListener('click', () => mask.classList.add('show'));
+  mask.addEventListener('click', e => { if (e.target === mask) mask.classList.remove('show'); });
+  document.addEventListener('keydown', e => {
+    const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (e.key === 'Escape') mask.classList.remove('show');
+    if (e.key === '/' && !typing) { e.preventDefault(); $('#search').focus(); }
+    if ((e.key === 'b' || e.key === 'B') && !typing) {
+      setCollapsed(!document.body.classList.contains('collapsed'));
+    }
+  });
+
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._t);
+    t._t = setTimeout(() => t.classList.remove('show'), 2000);
+  }
+
+  /* ---------- 启动 ---------- */
+  const s = DATA.stats || {};
+  $('#meta').textContent = (s.pages || pages.length) + ' 词条 · ' +
+    (s.characters || '') + ' 角色 · ' + (s.skins || '') + ' 皮肤 · 离线';
+  // 支持 ?q=关键词 直达（可分享的检索链接）
+  const initQ = new URLSearchParams(location.search).get('q');
+  if (initQ) { state.q = initQ.trim(); $('#search').value = initQ; }
+  render();
+  const hashId = +location.hash.slice(1);
+  if (hashId && byId[hashId]) open(hashId, false);
+})();
+</script>
+</body>
+</html>
